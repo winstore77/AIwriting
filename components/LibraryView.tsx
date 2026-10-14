@@ -47,7 +47,7 @@ export function LibraryView() {
       <main className="library">
         <section className="hero">
           <h1>다음 문장을<br />같이 씁니다.</h1>
-          <p>장르와 인물, 직전 원고를 읽고 장면을 이어 쓰는 작업실입니다. 원고는 이 브라우저에 남습니다.</p>
+          <p>전체 시나리오를 먼저 쓰고, 기획의도와 인물을 파악한 다음 본문을 쓰고 고칩니다. 원고는 이 브라우저에 남습니다.</p>
         </section>
         <div className="filters">
           <button className={`chip ${filter === "전체" ? "on" : ""}`} onClick={() => setFilter("전체")}>전체</button>
@@ -58,7 +58,7 @@ export function LibraryView() {
         <div className="grid">
           <button className="new-card" onClick={() => setOpen(true)}>
             <strong>빈 원고</strong>
-            <span>표지와 첫 문장을 정합니다</span>
+            <span>시나리오부터 시작합니다</span>
           </button>
           {visible.map((novel) => {
             const chars = novel.chapters.reduce((sum, ch) => sum + countChars(ch.content), 0);
@@ -72,7 +72,7 @@ export function LibraryView() {
                   <div className="meta">{novel.logline}</div>
                 </article>
                 <div className="book-foot">
-                  <span>{novel.chapters.length}화</span>
+                  <span>{novel.scenario?.trim() ? (novel.intent?.trim() ? `${novel.chapters.length}화` : "기획 중") : "시나리오"}</span>
                   <span>{chars.toLocaleString()}자</span>
                 </div>
               </a>
@@ -116,25 +116,22 @@ function CreateModal({
     if (form.opening) {
       try {
         const result = await generate(
-          { type: "opening", tone: "유지" },
+          { type: "scenario", tone: "유지" },
           {
             title: novel.title,
             genre: novel.genre,
             logline: novel.logline,
             characters: novel.characters,
             world: "",
-            chapterTitle: novel.chapters[0].title,
+            intent: "",
+            scenario: "",
+            chapterTitle: "전체 시나리오",
             content: "",
           },
           settings,
         );
         if (result.text) {
-          const next = {
-            ...novel,
-            chapters: [{ ...novel.chapters[0], content: result.text, updatedAt: Date.now() }],
-            updatedAt: Date.now(),
-          };
-          upsert(next);
+          upsert({ ...novel, scenario: result.text, updatedAt: Date.now() });
         }
       } catch {
         /* keep empty chapter */
@@ -149,7 +146,7 @@ function CreateModal({
     <div className="modal-back" onClick={onClose}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
         <h2>새 작품</h2>
-        <p className="hint">표지색은 임의로 고르고, 원하면 첫 장면을 바로 씁니다.</p>
+        <p className="hint">본문보다 전체 시나리오를 먼저 씁니다. 표지색은 임의로 고릅니다.</p>
         <label className="field">제목
           <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="검이 이름을 잊은 날" />
         </label>
@@ -171,7 +168,7 @@ function CreateModal({
         </label>
         <label className="check">
           <input type="checkbox" checked={form.opening} onChange={(e) => setForm({ ...form, opening: e.target.checked })} />
-          첫 장면을 이어서 써 두기
+          시나리오 초고를 먼저 써 두기
         </label>
         <div className="modal-actions">
           <button type="button" className="btn" onClick={onClose}>닫기</button>

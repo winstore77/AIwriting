@@ -165,7 +165,7 @@ function cast(ctx: AiContext) {
 function vars(ctx: AiContext, rand: Rng) {
   const voice = VOICES[ctx.genre];
   const people = cast(ctx);
-  const keys = keywords(`${ctx.logline} ${ctx.world} ${ctx.content.slice(-400)}`);
+  const keys = keywords(`${ctx.logline} ${ctx.intent} ${ctx.scenario} ${ctx.world} ${ctx.content.slice(-400)}`);
   return {
     ...people,
     place: pick(rand, voice.places),
@@ -264,6 +264,68 @@ function suggestionProse(i: number): string[] {
   ];
 }
 
+function scenarioText(v: Record<string, string>): string {
+  const beats = [
+    `발단\n{hero은는} {place}에서 {key을를} 잃으며 이야기가 시작된다. {other은는} 그 빈자리를 설명보다 먼저 알아본다.\n{logline}`,
+    `전개\n{hero은는} {object을를} 단서로 {other}와 같은 길을 걷는다. {trait}. 둘은 {key2} 앞에서 서로 다른 이유를 숨긴다.`,
+    `위기\n{key을를} 되찾는 선택이 {other}의 자리를 위협한다. {feeling}. 여기서 기획의 감정이 드러나야 한다. 이기는 장면이 아니라, 무엇을 지키지 못하는지다.`,
+    `절정\n{place}에서 {hero은는} 고른다. {object을를} 포기하거나, {other을를} 그 대가의 자리에 두거나.`,
+    `결말\n{hero은는} 자신의 빈칸을 남기고 {other이가} 서 있을 자리만 남긴다. {hook}`,
+  ];
+  return beats.map((line) => fill(line, v)).join("\n\n");
+}
+
+function storyPlan(ctx: AiContext): AiResult["plan"] {
+  const people = ctx.characters.filter((c) => c.name.trim());
+  const heroName = people[0]?.name || "주인공";
+  const otherName = people[1]?.name || "상대";
+  const intent = [
+    `${ctx.title}${josa(ctx.title, "은는")} ${ctx.genre}의 장관을 보여 주려는 작품이 아니다.`,
+    ctx.logline.trim()
+      ? `한 줄의 핵심은 이것이다. ${ctx.logline.trim()}`
+      : `${heroName}이 잃은 것을 설명으로 듣지 않고, 선택으로 이해하게 하는 것이 의도다.`,
+    `독자가 파악해야 할 감정은 통쾌함이 아니라, ${heroName}${josa(heroName, "이가")} 끝까지 입 밖에 내지 못하는 문장이다.`,
+    `${otherName}은 주인공을 돕는 기능이 아니라, 그 문장을 듣게 되는 사람이다.`,
+  ].join(" ");
+  const fallback = [
+    {
+      name: heroName,
+      role: people[0]?.role || "주인공",
+      trait: people[0]?.trait || "쉽게 입을 열지 않는다",
+      desire: `${ctx.genre}의 승리보다, 곁에 남은 사람의 이름을 먼저 지키려 한다.`,
+      voice: "짧고 건조하다. 감정은 문장 끝에만 남는다.",
+    },
+    {
+      name: otherName,
+      role: people[1]?.role || "상대",
+      trait: people[1]?.trait || "빈칸을 그냥 넘기지 못한다",
+      desire: "사실을 바로잡되, 그 사실이 사람을 지우는 순간에는 펜을 멈추고 싶다.",
+      voice: "또렷하고 빠르다. 질문을 문장으로 끝낸다.",
+    },
+  ];
+  const source = people.length ? people : fallback;
+  const characters = source.map((c, index) => ({
+    id: "id" in c && typeof c.id === "string" ? c.id : `plan-${index}`,
+    name: c.name,
+    role: c.role || (index === 0 ? "주인공" : "조연"),
+    trait: c.trait || fallback[index]?.trait || "속마음을 바로 보여 주지 않는다",
+    desire: ("desire" in c && c.desire) || fallback[index]?.desire || "자기 자리를 잃지 않으려 한다.",
+    voice: ("voice" in c && c.voice) || fallback[index]?.voice || "감정 대신 행동을 먼저 말한다.",
+  }));
+  const world = ctx.world.trim() || `${ctx.genre}의 규칙은 힘보다 기록에 가깝다. ${heroName}이 서 있는 장소는 이기고 지는 곳이 아니라, 이름이 남거나 지워지는 곳이다.`;
+  return { intent, world, characters };
+}
+
+function reviseText(action: Extract<AiAction, { type: "revise" }>, v: Record<string, string>): string {
+  const lead =
+    action.focus === "intent"
+      ? "{hero은는} 이 장면에서 이기고 있지 않았다. 지키려는 것이 문장 밖으로 드러나게 호흡을 늦췄다."
+      : action.focus === "character"
+        ? "{hero은는} {trait} 결 그대로 반응했다. {other은는} 그 침묵을 오해하지 않았다."
+        : "{hero은는} 같은 사실을 더 짧은 호흡으로 다시 밟았다.";
+  return [fill(lead, v), fill("{feeling}. 「{quote}」", v), action.instruction.trim()].filter(Boolean).join("\n\n");
+}
+
 export function runLocal(action: AiAction, ctx: AiContext): AiResult {
   const seed = hash(
     `${action.type}|${ctx.title}|${ctx.content.slice(-280)}|${"instruction" in action ? action.instruction : ""}|${"prompt" in action ? action.prompt : ""}|${"source" in action ? action.source.slice(0, 120) : ""}|${Date.now()}`,
@@ -276,6 +338,21 @@ export function runLocal(action: AiAction, ctx: AiContext): AiResult {
     prompt: "prompt" in action ? action.prompt.trim() : "",
   };
   const tone: Tone = "tone" in action ? action.tone : "유지";
+
+  if (action.type === "scenario") {
+    return { text: scenarioText(v), engine: "local" };
+  }
+
+  if (action.type === "plan") {
+    return { plan: storyPlan(ctx), engine: "local" };
+  }
+
+  if (action.type === "revise") {
+    const sourceKeys = keywords(action.source);
+    if (sourceKeys[0]) v.key = sourceKeys[0];
+    if (sourceKeys[1]) v.key2 = sourceKeys[1];
+    return { text: reviseText(action, v), engine: "local" };
+  }
 
   if (action.type === "suggest") {
     const suggestions: Suggestion[] = SUGGEST_TITLES.map(([title, summary], i) => ({

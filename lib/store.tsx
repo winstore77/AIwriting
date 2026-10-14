@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { AiSettings, Chapter, Novel } from "./types";
 import { loadNovels, loadSettings, saveNovels, saveSettings, uid } from "./storage";
 
@@ -26,11 +26,21 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     model: "gpt-4o-mini",
   });
 
+  const novelsRef = useRef<Novel[]>([]);
+
   useEffect(() => {
-    setNovels(loadNovels());
+    const loaded = loadNovels();
+    novelsRef.current = loaded;
+    setNovels(loaded);
     setSettingsState(loadSettings());
     setReady(true);
   }, []);
+
+  function writeNovels(next: Novel[]) {
+    novelsRef.current = next;
+    saveNovels(next);
+    setNovels(next);
+  }
 
   const api = useMemo<Store>(() => {
     return {
@@ -42,20 +52,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         saveSettings(next);
       },
       upsert: (novel) => {
-        setNovels((prev) => {
-          const next = prev.some((n) => n.id === novel.id)
-            ? prev.map((n) => (n.id === novel.id ? novel : n))
-            : [novel, ...prev];
-          saveNovels(next);
-          return next;
-        });
+        const prev = novelsRef.current;
+        const next = prev.some((item) => item.id === novel.id)
+          ? prev.map((item) => (item.id === novel.id ? novel : item))
+          : [novel, ...prev];
+        writeNovels(next);
       },
       remove: (id) => {
-        setNovels((prev) => {
-          const next = prev.filter((n) => n.id !== id);
-          saveNovels(next);
-          return next;
-        });
+        writeNovels(novelsRef.current.filter((item) => item.id !== id));
       },
       create: (input) => {
         const stamp = Date.now();
@@ -74,18 +78,16 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           cover: input.cover,
           world: "",
           outline: "",
+          intent: "",
+          scenario: "",
           characters: input.protagonist?.trim()
-            ? [{ id: uid(), name: input.protagonist.trim(), role: "주인공", trait: "" }]
+            ? [{ id: uid(), name: input.protagonist.trim(), role: "주인공", trait: "", desire: "", voice: "" }]
             : [],
           chapters: [chapter],
           createdAt: stamp,
           updatedAt: stamp,
         };
-        setNovels((prev) => {
-          const next = [novel, ...prev];
-          saveNovels(next);
-          return next;
-        });
+        writeNovels([novel, ...novelsRef.current]);
         return novel;
       },
     };

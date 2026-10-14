@@ -1,5 +1,28 @@
-import type { AiSettings, Novel } from "./types";
+import type { AiSettings, Character, Novel } from "./types";
 import { seedNovels } from "./seed";
+
+function normalizeCharacter(character: Partial<Character>, index: number): Character {
+  return {
+    id: character.id || `character-${index}`,
+    name: character.name || "",
+    role: character.role || "",
+    trait: character.trait || "",
+    desire: character.desire || "",
+    voice: character.voice || "",
+  };
+}
+
+function normalizeNovel(novel: Novel): Novel {
+  return {
+    ...novel,
+    intent: novel.intent || "",
+    scenario: novel.scenario || "",
+    world: novel.world || "",
+    outline: novel.outline || "",
+    characters: (novel.characters || []).map(normalizeCharacter),
+    chapters: novel.chapters || [],
+  };
+}
 
 export const NOVEL_KEY = "inkwell.novels.v1";
 export const SETTINGS_KEY = "inkwell.settings.v1";
@@ -22,7 +45,13 @@ export function loadNovels(): Novel[] {
     }
     const parsed = JSON.parse(raw) as Novel[];
     if (!Array.isArray(parsed)) return seedNovels();
-    return parsed;
+    const seeds = seedNovels();
+    return parsed.map((novel) => {
+      const normalized = normalizeNovel(novel);
+      const seed = seeds.find((item) => item.id === normalized.id);
+      if (seed && !normalized.scenario.trim()) return seed;
+      return normalized;
+    });
   } catch {
     return seedNovels();
   }
@@ -57,10 +86,10 @@ export function countChars(text: string): number {
 
 export function exportNovel(novel: Novel): string {
   const people = novel.characters
-    .map((c) => `- ${c.name} / ${c.role} / ${c.trait}`)
+    .map((c) => `- ${c.name} / ${c.role}\n  특징: ${c.trait || "없음"}\n  욕망: ${c.desire || "없음"}\n  말투: ${c.voice || "없음"}`)
     .join("\n");
   const chapters = novel.chapters
     .map((ch) => `## ${ch.title}\n\n${ch.content.trim() || "(비어 있음)"}`)
     .join("\n\n");
-  return `# ${novel.title}\n\n${novel.genre} · ${novel.logline}\n\n## 인물\n${people || "- 없음"}\n\n## 세계\n${novel.world || "없음"}\n\n## 개요\n${novel.outline || "없음"}\n\n${chapters}\n`;
+  return `# ${novel.title}\n\n${novel.genre} · ${novel.logline}\n\n## 기획의도\n${novel.intent || "없음"}\n\n## 전체 시나리오\n${novel.scenario || "없음"}\n\n## 인물\n${people || "- 없음"}\n\n## 세계\n${novel.world || "없음"}\n\n${chapters}\n`;
 }

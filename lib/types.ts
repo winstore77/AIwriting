@@ -19,6 +19,8 @@ export interface Character {
   name: string;
   role: string;
   trait: string;
+  desire: string;
+  voice: string;
 }
 
 export interface Chapter {
@@ -38,6 +40,8 @@ export interface Novel {
   characters: Character[];
   world: string;
   outline: string;
+  intent: string;
+  scenario: string;
   chapters: Chapter[];
   createdAt: number;
   updatedAt: number;
@@ -56,9 +60,16 @@ export interface Suggestion {
   prose: string;
 }
 
+export interface StoryPlan {
+  intent: string;
+  world: string;
+  characters: Character[];
+}
+
 export interface AiResult {
   text?: string;
   suggestions?: Suggestion[];
+  plan?: StoryPlan;
   engine: "local" | "remote";
 }
 
@@ -67,7 +78,10 @@ export type AiAction =
   | { type: "rewrite"; source: string; tone: Tone; instruction: string }
   | { type: "scene"; prompt: string; tone: Tone }
   | { type: "suggest"; tone: Tone }
-  | { type: "opening"; tone: Tone };
+  | { type: "opening"; tone: Tone }
+  | { type: "scenario"; tone: Tone }
+  | { type: "plan"; tone: Tone }
+  | { type: "revise"; source: string; tone: Tone; instruction: string; focus: "intent" | "character" | "prose" };
 
 export interface AiContext {
   title: string;
@@ -75,6 +89,8 @@ export interface AiContext {
   logline: string;
   characters: Character[];
   world: string;
+  intent: string;
+  scenario: string;
   chapterTitle: string;
   content: string;
 }
